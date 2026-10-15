@@ -8,11 +8,13 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Lock-free Least-Connections load balancer with zero-allocation host selection.
+ * Least-connections {@link LoadBalancer}: selects the available host with the fewest in-flight requests.
+ * Ties are broken by a rotating scan start.
  *
- * <p>Selects the healthy upstream host with the fewest currently active in-flight connections.
- * Ties are broken using round-robin distribution.
- *
+ * @implSpec Thread-safe. One {@link AtomicLong} increment sets the scan start and the hosts are read by
+ *           index, so a selection takes no lock and allocates nothing. The in-flight counts are read
+ *           without a snapshot: two concurrent selections may pick the same host. The {@code hashKey} of
+ *           {@link #select(UpstreamCluster, long)} is ignored.
  * @since 0.1.0
  */
 public final class LeastConnectionsLoadBalancer implements LoadBalancer {
@@ -21,38 +23,34 @@ public final class LeastConnectionsLoadBalancer implements LoadBalancer {
 
     @Override
     public UpstreamHost select(UpstreamCluster cluster) {
-        List<UpstreamHost> candidates = cluster.healthyHosts();
-        if (candidates.isEmpty()) {
-            candidates = FailOpen.candidates(cluster);
-        }
-        int size = candidates.size();
+        List<UpstreamHost> all = cluster.allHosts();
+        int size = all.size();
         if (size == 0) {
             return null;
         }
-        if (size == 1) {
-            return candidates.get(0);
-        }
-
-        // Start scanning from an offset to evenly distribute among ties
-        int startOffset = (int) Math.floorMod(tieBreaker.getAndIncrement(), size);
-        UpstreamHost bestHost = null;
+        boolean anyAvailable = Candidates.anyAvailable(all);
+        int start = Math.floorMod(tieBreaker.getAndIncrement(), size);
+        UpstreamHost best = null;
         int minConnections = Integer.MAX_VALUE;
-
         for (int i = 0; i < size; i++) {
-            int idx = (startOffset + i) % size;
-            UpstreamHost host = candidates.get(idx);
+            int idx = start + i;
+            if (idx >= size) {
+                idx -= size;
+            }
+            UpstreamHost host = all.get(idx);
+            if (!Candidates.isCandidate(host, anyAvailable)) {
+                continue;
+            }
             int conns = host.activeConnections();
-            if (conns < minConnections) {
+            if (best == null || conns < minConnections) {
+                best = host;
                 minConnections = conns;
-                bestHost = host;
-                if (minConnections == 0) {
-                    // Cannot get lower than 0
+                if (conns == 0) {
                     break;
                 }
             }
         }
-
-        return bestHost != null ? bestHost : candidates.get(0);
+        return best;
     }
 
     @Override

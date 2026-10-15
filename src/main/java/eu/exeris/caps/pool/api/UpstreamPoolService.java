@@ -33,6 +33,8 @@ public interface UpstreamPoolService extends AutoCloseable {
     void deregisterCluster(String name);
 
     /**
+     * Returns a read-only live view of the registered clusters.
+     *
      * @return all currently registered upstream clusters
      */
     Collection<UpstreamCluster> clusters();

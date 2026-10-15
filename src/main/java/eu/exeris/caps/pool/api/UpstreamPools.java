@@ -4,7 +4,9 @@ import eu.exeris.caps.pool.internal.AtomicUpstreamHost;
 import eu.exeris.caps.pool.internal.DefaultUpstreamCluster;
 import eu.exeris.caps.pool.internal.DefaultUpstreamPoolService;
 import eu.exeris.caps.pool.internal.FastRoundRobinLoadBalancer;
+import eu.exeris.caps.pool.internal.HashLoadBalancer;
 import eu.exeris.caps.pool.internal.LeastConnectionsLoadBalancer;
+import eu.exeris.caps.pool.internal.RandomLoadBalancer;
 import eu.exeris.caps.pool.internal.SmoothWeightedRoundRobinLoadBalancer;
 
 import java.util.ArrayList;
@@ -26,6 +28,24 @@ public final class UpstreamPools {
      */
     public static UpstreamPoolService newService() {
         return new DefaultUpstreamPoolService();
+    }
+
+    /**
+     * Folds a client address into the 64-bit key that {@link LoadBalancingAlgorithm#IP_HASH} selects by.
+     *
+     * <p>The caller supplies the address bytes (4 for IPv4, 16 for IPv6), taken from the connection's peer
+     * address and never from request headers. The same bytes always give the same key. The fold is FNV-1a
+     * and allocates nothing.
+     *
+     * @param address the raw client address bytes
+     * @return the key to pass to {@link UpstreamCluster#selectHost(long)}
+     */
+    public static long addressKey(byte[] address) {
+        long hash = 0xcbf29ce484222325L;
+        for (byte b : address) {
+            hash = (hash ^ (b & 0xffL)) * 0x100000001b3L;
+        }
+        return hash;
     }
 
     /**
@@ -112,7 +132,9 @@ public final class UpstreamPools {
             LoadBalancer lb = customLoadBalancer;
             if (lb == null) {
                 lb = switch (algorithm) {
-                    case ROUND_ROBIN, IP_HASH, RANDOM -> new FastRoundRobinLoadBalancer();
+                    case ROUND_ROBIN -> new FastRoundRobinLoadBalancer();
+                    case IP_HASH -> new HashLoadBalancer();
+                    case RANDOM -> new RandomLoadBalancer();
                     case LEAST_CONNECTIONS -> new LeastConnectionsLoadBalancer();
                     case WEIGHTED_ROUND_ROBIN -> new SmoothWeightedRoundRobinLoadBalancer();
                 };

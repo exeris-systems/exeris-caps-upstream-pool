@@ -6,14 +6,19 @@ package eu.exeris.caps.pool.api;
  * @since 0.1.0
  */
 public enum LoadBalancingAlgorithm {
-    /** Lock-free round-robin distribution using atomic sequence modulo. */
+    /** Rotates over the available hosts; the key of {@code selectHost(long)} is ignored. */
     ROUND_ROBIN,
-    /** Dynamic least-connections selection tracking in-flight requests. */
+    /** Selects the available host with the fewest in-flight requests; the key is ignored. */
     LEAST_CONNECTIONS,
-    /** Smooth weighted round-robin distribution according to configured host weights. */
+    /** Rotates over the available hosts in proportion to their endpoint weights, spread smoothly; the key is ignored. */
     WEIGHTED_ROUND_ROBIN,
-    /** Consistent or fast hash-based routing based on request key (IP, user, tenant). */
+    /**
+     * Selects by the caller-supplied key of {@code selectHost(long)}: the same key reaches the same host
+     * while that host is available, and when a host leaves only the keys that mapped to it move. The pool
+     * never reads a client address itself; see {@link UpstreamPools#addressKey(byte[])}. Without a key,
+     * {@code selectHost()} rotates over the available hosts.
+     */
     IP_HASH,
-    /** Pseudo-random host selection. */
+    /** Selects uniformly at random among the available hosts; the key is ignored. */
     RANDOM
 }

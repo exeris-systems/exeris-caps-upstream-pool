@@ -8,8 +8,12 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * High-performance, lock-free Round-Robin load balancer with zero-allocation host selection.
+ * Round-robin {@link LoadBalancer} over the available hosts of a cluster.
  *
+ * @implSpec Thread-safe. The rotation is one {@link AtomicLong} increment per selection; the available
+ *           hosts are found by an index scan of {@link UpstreamCluster#allHosts()}, so a selection takes
+ *           no lock and allocates nothing. The {@code hashKey} of {@link #select(UpstreamCluster, long)}
+ *           is ignored.
  * @since 0.1.0
  */
 public final class FastRoundRobinLoadBalancer implements LoadBalancer {
@@ -18,42 +22,18 @@ public final class FastRoundRobinLoadBalancer implements LoadBalancer {
 
     @Override
     public UpstreamHost select(UpstreamCluster cluster) {
-        List<UpstreamHost> healthy = cluster.healthyHosts();
-        int healthySize = healthy.size();
-        if (healthySize > 0) {
-            long seq = sequence.getAndIncrement();
-            int idx = (int) Math.floorMod(seq, healthySize);
-            return healthy.get(idx);
+        List<UpstreamHost> all = cluster.allHosts();
+        boolean anyAvailable = Candidates.anyAvailable(all);
+        int count = Candidates.count(all, anyAvailable);
+        if (count == 0) {
+            return null;
         }
-
-        // Fail-open: if all hosts are ejected or unavailable, fall back to all hosts
-        List<UpstreamHost> all = FailOpen.candidates(cluster);
-        int allSize = all.size();
-        if (allSize > 0) {
-            long seq = sequence.getAndIncrement();
-            int idx = (int) Math.floorMod(seq, allSize);
-            return all.get(idx);
-        }
-
-        return null;
+        int ordinal = Math.floorMod(sequence.getAndIncrement(), count);
+        return Candidates.nth(all, anyAvailable, ordinal);
     }
 
     @Override
     public UpstreamHost select(UpstreamCluster cluster, long hashKey) {
-        List<UpstreamHost> healthy = cluster.healthyHosts();
-        int healthySize = healthy.size();
-        if (healthySize > 0) {
-            int idx = (int) Math.floorMod(hashKey, healthySize);
-            return healthy.get(idx);
-        }
-
-        List<UpstreamHost> all = FailOpen.candidates(cluster);
-        int allSize = all.size();
-        if (allSize > 0) {
-            int idx = (int) Math.floorMod(hashKey, allSize);
-            return all.get(idx);
-        }
-
-        return null;
+        return select(cluster);
     }
 }
