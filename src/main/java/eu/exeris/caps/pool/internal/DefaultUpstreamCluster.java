@@ -14,6 +14,7 @@ import java.util.Objects;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Default implementation of {@link UpstreamCluster}.
@@ -40,6 +41,7 @@ public final class DefaultUpstreamCluster implements UpstreamCluster {
     private final ScheduledExecutorService proberExecutor;
     private final ProbeTransport proberTransport;
     private final HealthProber prober;
+    private final ReentrantLock probeRound = new ReentrantLock();
 
     public DefaultUpstreamCluster(
             String name,
@@ -101,15 +103,18 @@ public final class DefaultUpstreamCluster implements UpstreamCluster {
 
     /**
      * Runs one probe round on the calling thread, as the scheduler does on each interval.
-     * Does nothing when active health checking is disabled.
+     * Does nothing when active health checking is disabled or a round is already running.
+     * This is off the selection path, which never touches the round lock.
      */
     public void probeNow() {
         HealthProber active = prober;
-        if (active != null) {
+        if (active != null && probeRound.tryLock()) {
             try {
                 active.probeRound();
             } catch (RuntimeException e) {
                 // A failed round must not cancel the schedule; the next interval probes again
+            } finally {
+                probeRound.unlock();
             }
         }
     }

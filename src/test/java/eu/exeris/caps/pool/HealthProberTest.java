@@ -258,4 +258,20 @@ class HealthProberTest {
         host.recordSuccess();
         assertThat(host.status()).isEqualTo(EndpointHealthStatus.HEALTHY);
     }
+
+    @Test
+    @DisplayName("a passive failure does not turn a probe ejection into a timed one")
+    void passiveFailureLeavesProbeEjectionUntimed() {
+        AtomicLong now = new AtomicLong(0);
+        AtomicUpstreamHost host = new AtomicUpstreamHost(UpstreamEndpoint.of("http://h1:9001"),
+                PassiveHealthCheckConfig.of(1, java.time.Duration.ofNanos(500)), now::get);
+        host.setStatus(EndpointHealthStatus.UNHEALTHY);
+
+        host.recordFailure(500, false);
+        now.set(10_000);
+
+        assertThat(host.isAvailable()).isFalse();
+        host.recordSuccess();
+        assertThat(host.status()).isEqualTo(EndpointHealthStatus.UNHEALTHY);
+    }
 }

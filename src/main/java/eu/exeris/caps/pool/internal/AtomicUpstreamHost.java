@@ -59,6 +59,11 @@ public final class AtomicUpstreamHost implements UpstreamHost {
         this.budget = budget;
     }
 
+    /** An ejection without a window (probe or explicit status) is lifted by its owner, not re-timed by a failure. */
+    private boolean isHeldWithoutWindow() {
+        return status == EndpointHealthStatus.UNHEALTHY && ejectionUntilNanos == 0L;
+    }
+
     private boolean windowElapsed(long until) {
         return until != 0 && nanoClock.getAsLong() - until >= 0;
     }
@@ -133,7 +138,7 @@ public final class AtomicUpstreamHost implements UpstreamHost {
         if (transportError || statusCode >= 500) {
             long fails = consecutiveFailures.incrementAndGet();
             if (passiveConfig.enabled() && fails >= passiveConfig.consecutive5xxThreshold()
-                    && status != EndpointHealthStatus.DRAINING) {
+                    && status != EndpointHealthStatus.DRAINING && !isHeldWithoutWindow()) {
                 // A draining host stays out of service; passive ejection must not turn it into
                 // an ejected one that a later success would return to HEALTHY
                 EjectionBudget cap = budget;
