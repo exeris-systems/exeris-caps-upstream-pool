@@ -24,8 +24,8 @@ Milestones are versions, not dates. Dates appear only on what has shipped; nothi
 Layer 2 gateway building block. Provides `UpstreamPoolService`: named `UpstreamCluster`s of
 `UpstreamHost`s, built through `UpstreamPools`, with round-robin, weighted (smooth) round-robin,
 least-connections and `IP_HASH` selection, passive health (consecutive-error ejection with a quarantine
-window) and an opt-in active prober. Zero Exeris runtime dependencies; no `@Requires`. 13 tests across
-six classes.
+window) and an opt-in active prober. One compile dependency, `exeris-kernel-spi`, used only for the `UpstreamPoolEntitlement` requirement; no
+`@Requires`. 55 tests across nine classes.
 
 Gaps between the inventory and the code, found in the code:
 
