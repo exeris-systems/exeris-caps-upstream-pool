@@ -8,12 +8,19 @@ import eu.exeris.caps.pool.api.UpstreamHost;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.LongSupplier;
 
 /**
- * Lock-free, zero-allocation implementation of {@link UpstreamHost}.
+ * Lock-free implementation of {@link UpstreamHost}.
  *
  * <p>Maintains in-flight active connection count, total request/failure metrics,
- * and passive outlier detection ejection window using primitive atomics and volatile reads.
+ * and passive outlier detection ejection window using primitive atomics and volatile reads. No method
+ * takes a lock, and none allocates.
+ *
+ * <p>An ejection is either timed (a quarantine window, after which the host is available again on
+ * probation and is reinstated by its next success) or untimed (set by {@link #setStatus} or an active
+ * probe, lifted only by {@link #markHealthy()}, a healthy {@link #setStatus} or a probe). A success
+ * recorded while a timed window is still open does not lift it.
  *
  * @since 0.1.0
  */
@@ -29,10 +36,31 @@ public final class AtomicUpstreamHost implements UpstreamHost {
 
     private volatile EndpointHealthStatus status = EndpointHealthStatus.HEALTHY;
     private volatile long ejectionUntilNanos = 0L;
+    private volatile EjectionBudget budget;
+    private final LongSupplier nanoClock;
 
     public AtomicUpstreamHost(UpstreamEndpoint endpoint, PassiveHealthCheckConfig passiveConfig) {
+        this(endpoint, passiveConfig, System::nanoTime);
+    }
+
+    /**
+     * Creates a host that reads time from the given clock, so ejection windows can be driven without waiting.
+     *
+     * @param nanoClock a monotonic nanosecond clock
+     */
+    public AtomicUpstreamHost(UpstreamEndpoint endpoint, PassiveHealthCheckConfig passiveConfig, LongSupplier nanoClock) {
+        this.nanoClock = Objects.requireNonNull(nanoClock, "nanoClock");
         this.endpoint = Objects.requireNonNull(endpoint, "endpoint");
         this.passiveConfig = passiveConfig != null ? passiveConfig : PassiveHealthCheckConfig.DISABLED;
+    }
+
+    /** Subjects this host's passive ejections to the cluster's budget. */
+    void attachBudget(EjectionBudget budget) {
+        this.budget = budget;
+    }
+
+    private boolean windowElapsed(long until) {
+        return until != 0 && nanoClock.getAsLong() - until >= 0;
     }
 
     @Override
@@ -52,12 +80,8 @@ public final class AtomicUpstreamHost implements UpstreamHost {
             return false;
         }
         if (current == EndpointHealthStatus.UNHEALTHY) {
-            long until = ejectionUntilNanos;
-            if (until > 0 && System.nanoTime() >= until) {
-                // Probationary trial: allow request to re-evaluate host health
-                return true;
-            }
-            return false;
+            // Probationary trial once a timed window has elapsed: a request re-evaluates the host
+            return windowElapsed(ejectionUntilNanos);
         }
         return true;
     }
@@ -97,7 +121,7 @@ public final class AtomicUpstreamHost implements UpstreamHost {
     @Override
     public void recordSuccess() {
         consecutiveFailures.set(0);
-        if (status == EndpointHealthStatus.UNHEALTHY) {
+        if (status == EndpointHealthStatus.UNHEALTHY && windowElapsed(ejectionUntilNanos)) {
             status = EndpointHealthStatus.HEALTHY;
             ejectionUntilNanos = 0L;
         }
@@ -112,7 +136,12 @@ public final class AtomicUpstreamHost implements UpstreamHost {
                     && status != EndpointHealthStatus.DRAINING) {
                 // A draining host stays out of service; passive ejection must not turn it into
                 // an ejected one that a later success would return to HEALTHY
-                markUnhealthy(passiveConfig.ejectionDurationNanos());
+                EjectionBudget cap = budget;
+                if (cap == null) {
+                    markUnhealthy(passiveConfig.ejectionDurationNanos());
+                } else {
+                    cap.tryEject(this, passiveConfig.ejectionDurationNanos());
+                }
             }
         }
     }
@@ -120,7 +149,8 @@ public final class AtomicUpstreamHost implements UpstreamHost {
     @Override
     public void markUnhealthy(long durationNanos) {
         this.status = EndpointHealthStatus.UNHEALTHY;
-        this.ejectionUntilNanos = System.nanoTime() + durationNanos;
+        long until = nanoClock.getAsLong() + durationNanos;
+        this.ejectionUntilNanos = until == 0 ? 1 : until;
     }
 
     @Override
@@ -135,8 +165,9 @@ public final class AtomicUpstreamHost implements UpstreamHost {
         this.status = Objects.requireNonNull(status, "status");
         if (status == EndpointHealthStatus.HEALTHY) {
             this.consecutiveFailures.set(0);
-            this.ejectionUntilNanos = 0L;
         }
+        // An explicit status has no quarantine window: it holds until it is set again
+        this.ejectionUntilNanos = 0L;
     }
 
     @Override

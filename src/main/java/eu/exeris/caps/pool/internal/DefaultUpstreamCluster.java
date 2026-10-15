@@ -1,18 +1,12 @@
 package eu.exeris.caps.pool.internal;
 
 import eu.exeris.caps.pool.api.ActiveHealthCheckConfig;
-import eu.exeris.caps.pool.api.EndpointHealthStatus;
 import eu.exeris.caps.pool.api.LoadBalancingAlgorithm;
 import eu.exeris.caps.pool.api.LoadBalancer;
 import eu.exeris.caps.pool.api.PassiveHealthCheckConfig;
 import eu.exeris.caps.pool.api.UpstreamCluster;
 import eu.exeris.caps.pool.api.UpstreamHost;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -22,7 +16,13 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Default zero-allocation implementation of {@link UpstreamCluster}.
+ * Default implementation of {@link UpstreamCluster}.
+ *
+ * <p>Host selection ({@link #selectHost()}) delegates to the {@link LoadBalancer} and is lock-free and
+ * allocation-free in steady state when the balancer is one of this package's. The cluster owns one
+ * {@link EjectionBudget}, built from {@link PassiveHealthCheckConfig#maxEjectionPercent()}, which bounds
+ * passive and active ejections of hosts created by {@code UpstreamPools}, and, when active checking is
+ * enabled, one prober thread that {@link #shutdown()} stops.
  *
  * @since 0.1.0
  */
@@ -35,9 +35,11 @@ public final class DefaultUpstreamCluster implements UpstreamCluster {
     private final LoadBalancer loadBalancer;
     private final PassiveHealthCheckConfig passiveConfig;
     private final ActiveHealthCheckConfig activeConfig;
+    private final EjectionBudget ejectionBudget;
 
     private final ScheduledExecutorService proberExecutor;
-    private final HttpClient proberClient;
+    private final ProbeTransport proberTransport;
+    private final HealthProber prober;
 
     public DefaultUpstreamCluster(
             String name,
@@ -47,6 +49,23 @@ public final class DefaultUpstreamCluster implements UpstreamCluster {
             PassiveHealthCheckConfig passiveConfig,
             ActiveHealthCheckConfig activeConfig
     ) {
+        this(name, hosts, algorithm, loadBalancer, passiveConfig, activeConfig, null);
+    }
+
+    /**
+     * Creates a cluster whose active prober sends its probes through the given transport.
+     *
+     * @param probeTransport the probe wire, or {@code null} for the JDK HTTP client
+     */
+    public DefaultUpstreamCluster(
+            String name,
+            List<UpstreamHost> hosts,
+            LoadBalancingAlgorithm algorithm,
+            LoadBalancer loadBalancer,
+            PassiveHealthCheckConfig passiveConfig,
+            ActiveHealthCheckConfig activeConfig,
+            ProbeTransport probeTransport
+    ) {
         this.name = Objects.requireNonNull(name, "name");
         this.allHosts = List.copyOf(hosts);
         this.hostsArray = this.allHosts.toArray(new UpstreamHost[0]);
@@ -54,47 +73,50 @@ public final class DefaultUpstreamCluster implements UpstreamCluster {
         this.loadBalancer = Objects.requireNonNull(loadBalancer, "loadBalancer");
         this.passiveConfig = passiveConfig != null ? passiveConfig : PassiveHealthCheckConfig.DISABLED;
         this.activeConfig = activeConfig != null ? activeConfig : ActiveHealthCheckConfig.DISABLED;
+        this.ejectionBudget = new EjectionBudget(hostsArray, this.passiveConfig.maxEjectionPercent());
+        for (UpstreamHost host : hostsArray) {
+            if (host instanceof AtomicUpstreamHost atomic) {
+                atomic.attachBudget(ejectionBudget);
+            }
+        }
 
         if (this.activeConfig.enabled()) {
+            this.proberTransport = probeTransport != null
+                    ? probeTransport
+                    : new JdkHttpProbeTransport(this.activeConfig.timeoutMillis());
+            this.prober = new HealthProber(allHosts, this.activeConfig, proberTransport, ejectionBudget);
             this.proberExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread t = new Thread(r, "upstream-prober-" + name);
                 t.setDaemon(true);
                 return t;
             });
-            this.proberClient = HttpClient.newBuilder()
-                    .connectTimeout(Duration.ofMillis(activeConfig.timeoutMillis()))
-                    .followRedirects(HttpClient.Redirect.NEVER)
-                    .build();
-            startActiveProber();
+            long interval = this.activeConfig.checkIntervalMillis();
+            proberExecutor.scheduleWithFixedDelay(this::probeNow, interval, interval, TimeUnit.MILLISECONDS);
         } else {
             this.proberExecutor = null;
-            this.proberClient = null;
+            this.proberTransport = null;
+            this.prober = null;
         }
     }
 
-    private void startActiveProber() {
-        if (proberExecutor == null) return;
-        HttpClient client = proberClient;
-
-        proberExecutor.scheduleWithFixedDelay(() -> {
-            for (UpstreamHost host : hostsArray) {
-                try {
-                    String url = host.endpoint().baseUri() + activeConfig.healthCheckPath();
-                    HttpRequest req = HttpRequest.newBuilder(URI.create(url))
-                            .timeout(Duration.ofMillis(activeConfig.timeoutMillis()))
-                            .GET()
-                            .build();
-                    HttpResponse<Void> resp = client.send(req, HttpResponse.BodyHandlers.discarding());
-                    if (resp.statusCode() == 200) {
-                        host.recordSuccess();
-                    } else {
-                        host.recordFailure(resp.statusCode(), false);
-                    }
-                } catch (Exception e) {
-                    host.recordFailure(0, true);
-                }
+    /**
+     * Runs one probe round on the calling thread, as the scheduler does on each interval.
+     * Does nothing when active health checking is disabled.
+     */
+    public void probeNow() {
+        HealthProber active = prober;
+        if (active != null) {
+            try {
+                active.probeRound();
+            } catch (RuntimeException e) {
+                // A failed round must not cancel the schedule; the next interval probes again
             }
-        }, activeConfig.checkIntervalMillis(), activeConfig.checkIntervalMillis(), TimeUnit.MILLISECONDS);
+        }
+    }
+
+    /** Returns whether the prober thread is running, which is until {@link #shutdown()}. */
+    public boolean isProbing() {
+        return proberExecutor != null && !proberExecutor.isShutdown();
     }
 
     @Override
@@ -109,7 +131,7 @@ public final class DefaultUpstreamCluster implements UpstreamCluster {
 
     @Override
     public List<UpstreamHost> healthyHosts() {
-        // Fast path: if all are healthy, return allHosts without allocation
+        // Off the selection path: returns allHosts itself when every host is available, else a new list
         int healthyCount = 0;
         for (UpstreamHost host : hostsArray) {
             if (host.isAvailable()) {
@@ -188,8 +210,8 @@ public final class DefaultUpstreamCluster implements UpstreamCluster {
         if (proberExecutor != null) {
             proberExecutor.shutdownNow();
         }
-        if (proberClient != null) {
-            proberClient.close();
+        if (proberTransport != null) {
+            proberTransport.close();
         }
     }
 }

@@ -9,11 +9,17 @@ package eu.exeris.caps.pool.api;
 public interface UpstreamHost {
 
     /**
-     * @return the immutable network endpoint descriptor
+     * Returns the network endpoint this host represents.
+     *
+     * @return the immutable endpoint descriptor
      */
     UpstreamEndpoint endpoint();
 
     /**
+     * Returns the host's lifecycle status as last set. An ejected host reports
+     * {@link EndpointHealthStatus#UNHEALTHY} even after its quarantine window has elapsed, until a
+     * success or a probe reinstates it; {@link #isAvailable()} is the answer to "may it get traffic".
+     *
      * @return current lifecycle health status
      */
     EndpointHealthStatus status();
@@ -29,22 +35,30 @@ public interface UpstreamHost {
     boolean isAvailable();
 
     /**
-     * @return the number of currently active in-flight connections/requests
+     * Returns the number of requests currently in flight to this host.
+     *
+     * @return the in-flight count, never negative
      */
     int activeConnections();
 
     /**
-     * @return total requests routed to this host
+     * Returns the number of requests routed to this host since creation.
+     *
+     * @return the request total
      */
     long totalRequests();
 
     /**
-     * @return total failed requests
+     * Returns the number of failed requests recorded for this host since creation.
+     *
+     * @return the failure total
      */
     long totalFailures();
 
     /**
-     * @return current count of consecutive 5xx or transport failures
+     * Returns the length of the current run of failures (5xx or transport) with no success between.
+     *
+     * @return the consecutive failure count
      */
     long consecutiveFailures();
 
@@ -59,8 +73,10 @@ public interface UpstreamHost {
     void decrementConnections();
 
     /**
-     * Records a successful response (HTTP status < 500).
-     * Resets consecutive failures to zero and reinstates host if probationary.
+     * Records a successful response (HTTP status below 500).
+     * Resets consecutive failures to zero and reinstates a host whose quarantine window has elapsed.
+     * A success recorded while the window is still open, or on a host ejected without a window, does not
+     * reinstate it.
      */
     void recordSuccess();
 
@@ -74,6 +90,7 @@ public interface UpstreamHost {
 
     /**
      * Explicitly marks this host as unhealthy and ejects it for the given quarantine duration.
+     * An explicit call is not subject to the cluster's ejection budget.
      *
      * @param durationNanos quarantine duration in nanoseconds
      */
@@ -85,7 +102,9 @@ public interface UpstreamHost {
     void markHealthy();
 
     /**
-     * Sets the explicit health status.
+     * Sets the explicit health status. An {@link EndpointHealthStatus#UNHEALTHY} set this way has no
+     * quarantine window and holds until the status is set again, the host is marked healthy or a probe
+     * reinstates it.
      *
      * @param status new status
      */

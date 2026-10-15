@@ -6,6 +6,11 @@ import java.util.Objects;
 /**
  * Configuration for active periodic health checking (background probing).
  *
+ * <p>Active probing decides on its own, whether or not passive checking is enabled: a host with
+ * {@code unhealthyThreshold} consecutive failed probes is ejected (within the cluster's ejection budget,
+ * see {@link PassiveHealthCheckConfig}) and returns after {@code healthyThreshold} consecutive successful
+ * probes. A probe succeeds on a 2xx response; any other status, an I/O error or a timeout fails it.
+ *
  * @since 0.1.0
  */
 public record ActiveHealthCheckConfig(

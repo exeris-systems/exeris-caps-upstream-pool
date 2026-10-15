@@ -7,7 +7,13 @@ import java.time.Duration;
  *
  * <p>When an upstream host produces {@code consecutive5xxThreshold} consecutive failures
  * (5xx responses or transport I/O errors), it is automatically ejected from the active
- * healthy pool for {@code ejectionDuration}.
+ * healthy pool for {@code ejectionDurationNanos}.
+ *
+ * <p>{@code maxEjectionPercent} is a cluster-level ejection budget, shared with active probing: at most
+ * {@code max(1, floor(hostCount * maxEjectionPercent / 100))} hosts are ejected at a time, and at least
+ * one host that is neither ejected nor draining always remains, so a one-host cluster never ejects its
+ * host. An ejection the budget refuses leaves the host in rotation and is retried on its next failure.
+ * Explicit {@code markUnhealthy} and {@code setStatus} calls are not limited by it.
  *
  * @since 0.1.0
  */
