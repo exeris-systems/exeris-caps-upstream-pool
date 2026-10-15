@@ -22,8 +22,9 @@ Milestones are versions, not dates. Dates appear only on what has shipped; nothi
 ## Where this sits
 
 Layer 2 gateway building block. Provides `UpstreamPoolService`: named `UpstreamCluster`s of
-`UpstreamHost`s, built through `UpstreamPools`, with round-robin, weighted (smooth) round-robin,
-least-connections and `IP_HASH` selection, passive health (consecutive-error ejection with a quarantine
+`UpstreamHost`s, built through `UpstreamPools`, with round-robin, weighted (smooth) round-robin
+and least-connections selection (`IP_HASH` and `RANDOM` are declared in the API and balance as round-robin),
+passive health (consecutive-error ejection with a quarantine
 window) and an opt-in active prober. One compile dependency, `exeris-kernel-spi`, used only for the `UpstreamPoolEntitlement` requirement; no
 `@Requires`. 55 tests across nine classes.
 
