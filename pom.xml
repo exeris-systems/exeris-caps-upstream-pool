@@ -11,8 +11,8 @@
     <name>Exeris Caps :: Upstream Pool &amp; Load Balancing</name>
     <description>
         High-performance, zero-allocation upstream pool, load balancing and health check capability.
-        Implements lock-free Round-Robin, Least-Connections, Weighted Round-Robin, active background probing,
-        passive outlier detection with circuit ejection, and zero-allocation failover for Exeris Gateways.
+        Implements Round-Robin, Least-Connections, Weighted Round-Robin, IP-hash and random selection without locks or steady-state allocation, active background probing,
+        passive outlier detection under a cluster-level ejection budget, and fail-open selection for Exeris Gateways.
     </description>
     <url>https://github.com/exeris-systems/exeris-caps-upstream-pool</url>
     <inceptionYear>2026</inceptionYear>
