@@ -1,3 +1,12 @@
+---
+title: "exeris-caps-upstream-pool — Roadmap"
+type: roadmap
+visibility: public
+owning-repo: exeris-caps-upstream-pool
+status: active
+last-verified: 2026-10-15
+---
+
 # exeris-caps-upstream-pool — Roadmap
 
 Status: **poc**. Version line: **0.1.x**. Licence: Exeris Commercial License (ADR-023), entitlement id
@@ -13,10 +22,11 @@ Milestones are versions, not dates. Dates appear only on what has shipped; nothi
 ## Where this sits
 
 Layer 2 gateway building block. Provides `UpstreamPoolService`: named `UpstreamCluster`s of
-`UpstreamHost`s, built through `UpstreamPools`, with round-robin, weighted (smooth) round-robin,
-least-connections and `IP_HASH` selection, passive health (consecutive-error ejection with a quarantine
-window) and an opt-in active prober. Zero Exeris runtime dependencies; no `@Requires`. 13 tests across
-six classes.
+`UpstreamHost`s, built through `UpstreamPools`, with round-robin, weighted (smooth) round-robin
+least-connections, random and key-affine `IP_HASH` selection (the caller supplies the key),
+passive health (consecutive-error ejection with a quarantine
+window), an opt-in active prober with its own thresholds, and a cluster-level ejection budget. One compile dependency, `exeris-kernel-spi`, used only for the `UpstreamPoolEntitlement` requirement; no
+`@Requires`.
 
 Gaps between the inventory and the code, found in the code:
 
@@ -26,7 +36,7 @@ Gaps between the inventory and the code, found in the code:
 - The active prober runs on a thread executor owned by the cluster and uses the JDK `HttpClient`, not the
   kernel client engine; there is no `@CapabilityLifecycle`, so shutdown depends on callers invoking
   `UpstreamCluster.shutdown()`.
-- `LoadBalancingAlgorithm.IP_HASH` exists in the API; the SKU maps only three of the four algorithms.
+- `LoadBalancingAlgorithm.IP_HASH` is implemented on a caller-supplied key; the SKU maps only three of the five algorithms and has no source of the key yet.
 
 **Upstream constraints this repo does not own:**
 

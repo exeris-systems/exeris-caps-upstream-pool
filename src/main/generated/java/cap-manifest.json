@@ -1,0 +1,29 @@
+{
+  "schemaVersion" : 2,
+  "stamp" : {
+    "validated" : true,
+    "compositionVersion" : "0.0.0",
+    "contentBinding" : "sha256:94b5050c377a3d36444cb21cdee6bddac916e728effb7e0e7c9fe73f775acdbf"
+  },
+  "modules" : [
+    {
+      "name" : "UpstreamPoolModule",
+      "packageName" : "eu.exeris.caps.pool",
+      "qualifiedName" : "eu.exeris.caps.pool.UpstreamPoolModule",
+      "module" : {
+        "provides" : [
+          {
+            "service" : "eu.exeris.caps.pool.api.UpstreamPoolService",
+            "version" : "0.1.0"
+          }
+        ],
+        "requires" : [ ]
+      }
+    }
+  ],
+  "resolutions" : [ ],
+  "initOrder" : [
+    "eu.exeris.caps.pool.UpstreamPoolModule"
+  ],
+  "warnings" : [ ]
+}

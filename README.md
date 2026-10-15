@@ -7,7 +7,7 @@ Status: proof of concept, built against `exeris-kernel` 0.13.0-SNAPSHOT on JDK 2
 ## Where it sits
 
 - **Layer:** Layer 2 — Gateway building block, in the Tier 2 capability map of [`high-level-architecture.md`](https://github.com/exeris-systems/exeris-docs/blob/main/high-level-architecture.md) §3.2.
-- **Depends on:** nothing beyond `exeris-sdk-annotations` (`provided`).
+- **Depends on:** `exeris-sdk-annotations` (`provided`) and `exeris-kernel-spi`, used only for the entitlement requirement.
 - **Provides** (`@Provides`, contract version 0.1.0): `UpstreamPoolService`.
 - **Requires:** no other capability.
 - **Wall (ADR-055):** `eu.exeris.caps.pool.api` is the cross-cap surface; `eu.exeris.caps.pool.internal` is private, and a sibling cap reaching into it fails the build. No Spring, servlet, Netty or reactive type may appear (ADR-006).
@@ -15,9 +15,9 @@ Status: proof of concept, built against `exeris-kernel` 0.13.0-SNAPSHOT on JDK 2
 ## What the source contains
 
 - `UpstreamHost` tracks health status, in-flight connections and request and failure counts with atomics (`AtomicUpstreamHost`).
-- `LoadBalancer` implementations cover round-robin, least-connections and smooth weighted round-robin; `LoadBalancingAlgorithm` names the choice, and `UpstreamPools` is the factory.
-- `PassiveHealthCheckConfig` ejects a host from the healthy set for a configured duration after a configured number of consecutive 5xx responses or transport errors.
-- `ActiveHealthCheckConfig` configures periodic background probing; `DefaultUpstreamCluster` runs the prober on a scheduled executor and stops it on close.
+- `LoadBalancer` implementations cover round-robin, least-connections, smooth weighted round-robin, random and key-affine `IP_HASH` (the caller supplies the key; `UpstreamPools.addressKey(byte[])` folds raw address bytes into one); `LoadBalancingAlgorithm` names the choice, and `UpstreamPools` is the factory. Selection scans `UpstreamCluster.allHosts()` by index, takes no lock and, after warm-up, allocates nothing; the tests measure allocation with the kernel TCK's `JfrAllocationMonitor` (zero contract) and inspect the classes for locks.
+- `PassiveHealthCheckConfig` ejects a host from the healthy set for a configured duration after a configured number of consecutive 5xx responses or transport errors. Its `maxEjectionPercent` is a cluster-level budget shared with the prober: at most `max(1, floor(hosts * percent / 100))` hosts are ejected at once and one non-ejected, non-draining host always remains, so a one-host cluster never ejects it.
+- `ActiveHealthCheckConfig` configures periodic background probing; `DefaultUpstreamCluster` runs the prober on a scheduled executor and stops it on `shutdown()` (`UpstreamPoolService.close()` shuts down every cluster). The prober decides on its own, with or without passive checking: `unhealthyThreshold` consecutive failed probes eject a host, `healthyThreshold` consecutive successful probes (2xx) reinstate it.
 
 ## Build & test
 
