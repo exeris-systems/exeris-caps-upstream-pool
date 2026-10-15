@@ -29,6 +29,8 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public final class DefaultUpstreamCluster implements UpstreamCluster {
 
+    private static final System.Logger LOG = System.getLogger("eu.exeris.caps.pool.health");
+
     private final String name;
     private final List<UpstreamHost> allHosts;
     private final UpstreamHost[] hostsArray;
@@ -113,6 +115,7 @@ public final class DefaultUpstreamCluster implements UpstreamCluster {
                 active.probeRound();
             } catch (RuntimeException e) {
                 // A failed round must not cancel the schedule; the next interval probes again
+                LOG.log(System.Logger.Level.WARNING, "health probe round failed for cluster {0}", name, e);
             } finally {
                 probeRound.unlock();
             }

@@ -15,7 +15,7 @@ import java.util.function.LongSupplier;
  *
  * <p>Maintains in-flight active connection count, total request/failure metrics,
  * and passive outlier detection ejection window using primitive atomics and volatile reads. No method
- * takes a lock, and none allocates.
+ * takes a lock, and none allocates, except {@link #toString()}, which formats a string and is not on the selection path.
  *
  * <p>An ejection is either timed (a quarantine window, after which the host is available again on
  * probation and is reinstated by its next success) or untimed (set by {@link #setStatus} or an active

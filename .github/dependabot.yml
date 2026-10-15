@@ -1,9 +1,9 @@
 version: 2
 
 # GitHub Actions and Maven, weekly. The eu.exeris pins are ignored: CI builds the SDK and the codegen
-# chain from the release tag that build.yml names, and sibling caps from their default branch, so a
-# bot PR moving one of those versions would propose something the build does not produce. They move
-# by a deliberate change to the POM and build.yml together.
+# chain from the release tag that build.yml names, so a bot PR moving one of those versions would
+# propose something the build does not produce. They move by a deliberate change to the POM and
+# build.yml together.
 updates:
   - package-ecosystem: github-actions
     directory: /
@@ -38,7 +38,6 @@ updates:
     ignore:
       - dependency-name: "eu.exeris:*"
       - dependency-name: "eu.exeris.tooling:*"
-      - dependency-name: "eu.exeris.caps:*"
     groups:
       test-dependencies:
         patterns:
