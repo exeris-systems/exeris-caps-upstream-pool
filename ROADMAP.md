@@ -42,7 +42,7 @@ Gaps between the inventory and the code, found in the code:
 
 | Constraint | Effect here | Owner |
 |---|---|---|
-| Kernel licence gate (ADR-088, ADR-089) in kernel `0.13.0-SNAPSHOT` | Entitlement resolvable only from that line | `exeris-kernel` |
+| Kernel licence gate (ADR-088, ADR-089), present from kernel `0.13.x` | Entitlement is resolved against the pinned `0.13.1` | `exeris-kernel` |
 | Kernel HTTP client engine (`HttpClientEngine`) | Whether the prober should use it instead of the JDK client | `exeris-kernel` |
 | HLA §3.2 row differs from the code | Registry names `UpstreamPool` and a `gateway-core` requirement | `exeris-docs` |
 | Kernel `HttpExchange` does not expose the peer address yet | `IP_HASH` end to end needs the connection address | `exeris-kernel` |
@@ -53,11 +53,11 @@ Gaps between the inventory and the code, found in the code:
 ## 0.1.0 — the code PR
 
 - [ ] Defects found in the pre-import review are fixed in the import, each with a test
-- [ ] Code imported; repository files and ADR link stubs added
-- [ ] `@Provides(UpstreamPoolService)` at contract `0.1.0`
-- [ ] Kernel `0.13.0-SNAPSHOT`; SDK `0.12.0` and tooling `0.10.0` pins aligned
-- [ ] Artefacts stay `0.1.0-SNAPSHOT` until kernel `0.13.0` is released; a non-snapshot `0.1.0` is cut only after that
-- [ ] Licence enforcement: `UpstreamPoolEntitlement` (id `exeris-caps-upstream-pool`), `META-INF/services`
+- [x] Code imported; repository files and ADR link stubs added
+- [x] `@Provides(UpstreamPoolService)` at contract `0.1.0`
+- [x] Kernel `0.13.1`, SDK `0.13.3` and tooling `0.11.0` pins aligned; all three resolve from Maven Central
+- [x] Kernel `0.13.x` is released; the artefact is still `0.1.0-SNAPSHOT` and a non-snapshot `0.1.0` is not cut yet
+- [x] Licence enforcement: `UpstreamPoolEntitlement` (id `exeris-caps-upstream-pool`), `META-INF/services`
       registration, TCK test and boot test against the kernel's Phase 0 gate
 - [ ] `build.yml` green on JDK 25 and 26; `cap-manifest.json` committed through the two-pass build
 
